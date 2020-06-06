@@ -1,0 +1,541 @@
+---
+title: "HarvardX PH125.9X Data Science Capstone MovieLens Project"
+author: "David Wong"
+date: "June, 2020"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+---
+\newpage
+# Section 1: Introduction
+
+## 1.1 Background
+
+This is the first of the two Capstone projects that learners need to complete in the final module of the HarvardX Data Science Professional Certification series.
+
+## 1.2 Objective
+
+The key objective is to build a movie recommendation system using the smaller version of the MovieLens dataset which contains 10 million rating records.
+
+## 1.3 Guidelines and rules
+
+Data preparation script is provided by the course provider. The script pre-splits the data set into two data sets: "edx" and "validation".
+
+The "validation" data set is STRICTLY used for final validation ONLY; whereas the "edx" data set is used for training and testing.
+
+## 1.4 Key steps
+
+Data Preparation: in addition to the initial data preparation script provided by the course provider, we will further split the "edx" data set into "train_set" and "test_set". As the names suggest, "train_set" and "test_set" will be used for training and testing the various algorithms/models built, and after each test, we will determine if the result has improved from the previous model and if it has hit the target goal.
+
+Data Exploration: we will use a combination of simple scripts and plots to provide facts and statistics to support our rationale behind using each model.
+
+Building & testing the models: this step is where we build our model based on the observation and principles determined in the Data Exploration step; train, test and predict result for each model.
+
+Result for each test will be recorded and appended to a data frame and presented at the end of each test.
+
+## 1.5 Goal
+
+The goal is very focused and straightforward: achieve a target RMSE of <0.86490.
+
+## 1.6 R script
+
+The code snipplets presented in this report are extracted partially from the R script submitted separately as part of the project submission. Consolidation of these code snipplets does not make it whole, therefore, please always refer to the R script for a successful full run.
+
+\newpage
+# Section 2: Analysis
+
+## 2.1 Data Preparation
+
+Data preparation codes provided by the course provider edX will be run first as pre-requisite. As the dataset provided is already quite clean and neat, the only extra step required is to split the "edx" data set further into a "train_set" and a "test_set" for training and testing as the names suggest.
+
+```{r include=FALSE}
+####################
+#                  #
+# Data Preparation #
+#                  #
+####################
+
+# Data preparation codes provided by edx to create edx and validation data sets
+
+# Note: this process could take a couple of minutes
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+
+library(data.table)
+library(tidyverse)
+library(dplyr)
+library(caret)
+
+# MovieLens 10M dataset:
+# https://grouplens.org/datasets/movielens/10m/
+# http://files.grouplens.org/datasets/movielens/ml-10m.zip
+
+dl <- tempfile()
+download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                 col.names = c("userId", "movieId", "rating", "timestamp"))
+
+movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+colnames(movies) <- c("movieId", "title", "genres")
+# Modified to resolve "NA" issues due to R 4.0
+movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId),
+                                           title = as.character(title),
+                                           genres = as.character(genres))
+
+movielens <- left_join(ratings, movies, by = "movieId")
+
+# Validation set will be 10% of MovieLens data
+set.seed(1, sample.kind="Rounding")
+# if using R 3.5 or earlier, use `set.seed(1)` instead
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+temp <- movielens[test_index,]
+
+# Make sure userId and movieId in validation set are also in edx set
+validation <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+
+# Add rows removed from validation set back into edx set
+removed <- anti_join(temp, validation)
+edx <- rbind(edx, removed)
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+
+# Split edx data set further into train_set and test_set
+test_index_edx <- createDataPartition(y = edx$rating, times = 1, p = 0.2,
+                                      list = FALSE)
+train_set <- edx[-test_index_edx,]
+test_set <- edx[test_index_edx,]
+
+test_set <- test_set %>%
+  semi_join(train_set, by = "movieId") %>%
+  semi_join(train_set, by = "userId")
+
+```
+
+## 2.2 Data Exploration - Round 1
+
+A movie recommendation system is something that is very close to our daily life. Common sense tells us a few things:
+
+1. Not every user could have rated every movie.
+2. Some movies are being rated more than the others such as the blockbusters - which leads us to "movie bias".
+3. Some users are more active than the others - which leads us to "user bias"
+4. Some movies are being rated once or only a few times - which leads us to the need of regularization on the biases.
+
+Instead of just using common sense, we will observe the edx dataset and use facts and statistics to support the rationale behind them.
+
+### 2.2.1 Generation observation
+
+Before further exploration, we will use tibble to confirm the data looks clean and the number of rows and columns match the expectation for all the four data sets.
+
+```{r}
+edx %>% as_tibble()
+validation %>% as_tibble()
+train_set %>% as_tibble()
+test_set %>% as_tibble()
+```
+
+Multiplying the unique number of movies and users which gives us a result of more than 746M records, proves that not every user has rated every movie in our data set.
+
+```{r}
+# Determine number of unique users and movies and confirm that not all users have rated all movies
+unique_user <- n_distinct(edx$userId)
+unique_movie <- n_distinct(edx$movieId)
+unique_user * unique_movie
+```
+
+### 2.2.2 Pave the way for movie bias
+
+A simple histogram below shows the distribution of ratings regardless of movie or user.
+
+```{r}
+# Observe ratings distribution
+hist(edx$rating)
+```
+
+
+The diagram below plots the number of ratings per movie. We can see from the distribution that some movies get rated more often than the others and they vary a lot.
+
+```{r}
+edx %>% 
+  count(movieId) %>% 
+  ggplot(aes(n)) + 
+  geom_histogram(bins = 30, color = "black") + 
+  scale_x_log10() + 
+  ggtitle("Movies")
+```
+
+The script below shows some examples of movies that are rated only once, which are, as expected, obscure ones.
+
+```{r}
+edx %>%
+  group_by(movieId) %>%
+  summarize(count = n()) %>%
+  filter(count == 1) %>%
+  left_join(edx, by = "movieId") %>%
+  group_by(title) %>%
+  summarize(rating = rating, n_rating = count) %>%
+  slice(1:20) %>%
+  knitr::kable()
+```
+Therefore, we will need to take movie bias into consideration of our modeling.
+
+### 2.2.3 Pave the way for user bias
+
+The diagram below plots the number of ratings per user and confirms that some users are more active than the others.
+
+```{r}
+edx %>%
+  count(userId) %>% 
+  ggplot(aes(n)) + 
+  geom_histogram(bins = 30, color = "black") + 
+  scale_x_log10() +
+  ggtitle("Users")
+```
+The diagram below plots the mean movie ratings given by users who have rated more than 100 movies and there is substantial variability across users as well. Some users are very critical and stringent on their ratings, and some users are more forgiving and love every movie.
+
+This implies that we need to take user bias into consideration of our modeling later.
+
+```{r}
+edx %>%
+  group_by(userId) %>%
+  filter(n() >= 100) %>%
+  summarize(b_u = mean(rating)) %>%
+  ggplot(aes(b_u)) +
+  geom_histogram(bins = 30, color = "black") +
+  xlab("Mean rating") +
+  ylab("Number of users") +
+  ggtitle("Mean movie ratings given by users") +
+  scale_x_discrete(limits = c(seq(0.5,5,0.5))) +
+  theme_light()
+```
+
+\newpage
+## 2.3 Building & testing the models - Round 1: Simple average, movie and user effects
+
+### 2.3.1 Model 1: Average movie rating
+
+The first model we are building is simply to predict the same rating for all movies regardless of user using the average movie rating.
+
+The result is expected to be nothing but the standard deviation and the resulted RMSE is about 1 which is far from our target (RMSE<0.86490).
+
+```{r}
+# Compute the mean
+mu <- mean(train_set$rating)
+
+# Test results based on simple prediction
+naive_rmse <- RMSE(test_set$rating, mu)
+naive_rmse
+```
+
+A data frame called "rmse_results" is created to store the test results. Each test result will be appended at the end of the table as the tests are conducted throughout the project. Below shows the first entry of the test result of our first model.
+
+```{r}
+# Create a data frame and Save result of the first model
+rmse_results <- data_frame(method = "Average movie rating model (test_set)", RMSE = naive_rmse)
+rmse_results
+```
+
+### 2.3.2 Model 2: Movie Effect model
+
+As confirmed by the data exploration earlier, some movies are rated higher and more frequently than others.
+
+The second model is to enhance the first model by adding the term b_i to represent average ranking for movie i. We describe this as movie bias or movie effect.
+
+The result has improved but is not meeting our target (RMSE<0.86490) yet.
+
+```{r}
+# Enhance Model 1 by adding the movie bias b_i which represents average ranking for movie i
+movie_avgs <- train_set %>%
+  group_by(movieId) %>%
+  summarize(b_i = mean(rating - mu))
+
+# Test results based on movie effect model
+predicted_ratings <- mu +  test_set %>%
+  left_join(movie_avgs, by='movieId') %>%
+  pull(b_i)
+
+movie_effect_rmse <- RMSE(predicted_ratings, test_set$rating)
+
+movie_effect_rmse
+
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="Movie effect model (test_set)",  
+                                     RMSE = movie_effect_rmse ))
+
+# Check results and confirm there is an improvement using movie bias
+rmse_results
+```
+
+### 2.3.3 Model 3: User Effect model
+
+As confirmed by the data exploration earlier, we need a model that takes user effect into consideration, so that, for example, if a great movie is rated by a critical user, the movie and user effects will counter each other and give a more accurate prediction.
+
+The third model is therefore to enhance the previous model by adding the term b_u to represent average rating for user u. We describe this as user bias or user effect.
+
+The result has improved again and is very close to our target (RMSE<0.86490).
+
+```{r}
+# Enhance Model 2 by adding the user bias b_u
+user_avgs <- train_set %>%
+  left_join(movie_avgs, by='movieId') %>%
+  group_by(userId) %>%
+  summarize(b_u = mean(rating - mu - b_i))
+
+
+# Test results based on user effect model
+predicted_ratings <- test_set%>%
+  left_join(movie_avgs, by='movieId') %>%
+  left_join(user_avgs, by='userId') %>%
+  mutate(pred = mu + b_i + b_u) %>%
+  pull(pred)
+
+user_effect_rmse <- RMSE(predicted_ratings, test_set$rating)
+
+user_effect_rmse
+
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="Movie and user effect model (test_set)",  
+                                     RMSE = user_effect_rmse))
+
+# Check results and confirm there is an improvement using user bias on top of movie bias
+rmse_results
+```
+
+\newpage
+## 2.4 Data Exploration - Round 2
+
+This section is to confirm our intuition mentioned earlier that there would be a possibility that some movies are rated by very few users. We will need to add a penalty to target especially when the sample size is small. Before building the model, we will explore the data further.
+
+The following code snipplet will show you the "best" and "worst" movies are the obscure ones, based on movie effect only.
+
+```{r}
+# Create a list of Movie IDs and Titles
+movie_titles <- edx %>%
+  select(movieId, title) %>%
+  distinct()
+
+# Find out the 10 best movies according to our estimate - obscure movies!
+print("Top 10 best movies")
+movie_avgs %>% left_join(movie_titles, by="movieId") %>%
+  arrange(desc(b_i)) %>%
+  slice(1:10) %>%
+  pull(title)
+
+# Find out the 10 worst movies according to our estimate - also obscure movies!
+print("Top 10 worst movies")
+movie_avgs %>% left_join(movie_titles, by="movieId") %>%
+  arrange(b_i) %>%
+  slice(1:10) %>%
+  pull(title)
+```
+
+The reason for the above is that these obscure movies were rated by very few people, a lot of them are rated by one user in fact, according to the following codes.
+
+```{r}
+#Find out how often these top (best and worst) movies are rated
+train_set %>% count(movieId) %>%
+  left_join(movie_avgs, by="movieId") %>%
+  left_join(movie_titles, by="movieId") %>%
+  arrange(desc(b_i)) %>%
+  slice(1:10) %>%
+  pull(n)
+
+train_set %>% count(movieId) %>%
+  left_join(movie_avgs) %>%
+  left_join(movie_titles, by="movieId") %>%
+  arrange(b_i) %>%
+  slice(1:10) %>%
+  pull(n)
+```
+
+\newpage
+## 2.5 Building & testing the models - Round 2: Regularization
+
+### 2.5.1 Model 4: Regularized Movie and User Effect
+
+After the second round of data exploration, we can confirm the need of finding a means to constrain the total variability of the effect sizes. In other words, we need to add a penalty "lambda" that targets particularly when the sample size is small - for example, movies rated by only 1 or few users. Such penalty will not affect much for the case of a large sample size which gives us table estimate.
+
+The next step is to find out the optimal of "lambda".
+
+### 2.5.2 Choosing the right lambda
+
+lambda is a tuning parameter and it takes a bit of "trial-and-error" and we use cross-validation to choose it.
+
+The following codes and plot help us identify the optimal value. 
+
+```{r}
+# The penalized estimate, lambda, is a tuning parameter, therefore, use cross-validation to choose it
+lambdas <- seq(0, 2, 0.10)
+
+# For each lambda,find b_i & b_u, followed by rating prediction & testing
+
+###########################
+#                         #
+# Use train_set data only #
+#                         #
+###########################
+
+rmses <- sapply(lambdas, function(l){
+  
+  mu <- mean(train_set$rating)
+  
+  b_i <- train_set %>% 
+    group_by(movieId) %>%
+    summarize(b_i = sum(rating - mu)/(n()+l))
+  
+  b_u <- train_set %>% 
+    left_join(b_i, by="movieId") %>%
+    group_by(userId) %>%
+    summarize(b_u = sum(rating - b_i - mu)/(n()+l))
+    
+  predicted_ratings <- 
+    train_set %>% 
+    left_join(b_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    mutate(pred = mu + b_i + b_u) %>%
+    pull(pred)
+  
+  return(RMSE(predicted_ratings, train_set$rating))
+})
+
+# Plot rmses vs lambdas to select the optimal lambda                                                             
+qplot(lambdas, rmses)  
+
+
+# Determine the optimal lambda which gives the smallest RMSE value                                                             
+lambda <- lambdas[which.min(rmses)]
+```
+
+### 2.5.3 Test results using Regularized model on both train_set and test_set
+
+The result on "train_set" can be obtained by getting the minimum "rmses" value from the earlier code snipplet. We can see that it has already hit our target (RMSE<0.86490).
+
+```{r}
+min(rmses)
+
+# Test and append result to the existing result data frame
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="Regularized movie and user effect model (train_set)",  
+                                     RMSE = min(rmses)))
+
+# Check results and confirm there is an improvement and also meets the target
+rmse_results
+```
+Now, let's use the optimal lambda, run the algorithm with the test_set. We can see that the RMSE result using the test_set also meets our target (RMSE<0.86490).
+
+```{r}
+#########################################
+#                                       #
+# Use test_set data with optimal lambda #
+#                                       #
+#########################################
+
+mu <- mean(test_set$rating)
+
+# Compute regularized movie bias using optimal lambda
+b_i <- test_set %>% 
+  group_by(movieId) %>%
+  summarize(b_i = sum(rating - mu)/(n()+lambda))
+
+# Compute regularized user bias using optimal lambda
+b_u <- test_set %>% 
+  left_join(b_i, by="movieId") %>%
+  group_by(userId) %>%
+  summarize(b_u = sum(rating - b_i - mu)/(n()+lambda))
+
+# Test results based on Regularized Movie and User effect model
+predicted_ratings <- 
+  test_set %>% 
+  left_join(b_i, by = "movieId") %>%
+  left_join(b_u, by = "userId") %>%
+  mutate(pred = mu + b_i + b_u) %>%
+  pull(pred)
+
+test_set_result <- RMSE(predicted_ratings, test_set$rating)
+
+test_set_result
+
+rmse_results <- bind_rows(rmse_results,
+                          data_frame(method="Regularized movie and user effect model (test_set)",  
+                                     RMSE = test_set_result))
+
+# Check results and confirm there is an improvement on test_set and also meets the target
+rmse_results
+
+```
+
+\newpage
+# Section 3: Results
+
+## 3.1 Final result using "validation" data set
+
+Now, we are quite confident that the "Regularized movie and user effect model" will achieve our goal for hitting RMSE<0.86490, at least for both the train_set and test_set data.
+
+The following is the final step of using the optimal lambda and run the same algorithm using the "validation" data pre-split by the code provided by the course.
+
+As usual, the final result is appended to the result data frame and presented in the summary table.
+
+```{r}
+###################################################################################
+#                                                                                 #
+# Final test using Regularized Movie and User Effect model on Validation data set #
+#                                                                                 #
+###################################################################################
+
+mu <- mean(validation$rating)
+
+# Compute regularized movie bias using optimal lambda
+b_i <- validation %>% 
+  group_by(movieId) %>%
+  summarize(b_i = sum(rating - mu)/(n()+lambda))
+
+# Compute regularized user bias using optimal lambda
+b_u <- validation %>% 
+  left_join(b_i, by="movieId") %>%
+  group_by(userId) %>%
+  summarize(b_u = sum(rating - b_i - mu)/(n()+lambda))
+
+# Final test
+predicted_ratings <- 
+  validation %>% 
+  left_join(b_i, by = "movieId") %>%
+  left_join(b_u, by = "userId") %>%
+  mutate(pred = mu + b_i + b_u) %>%
+  pull(pred)
+
+final_va_result <- RMSE(predicted_ratings, validation$rating)
+
+final_va_result
+
+rmse_results <- bind_rows(rmse_results,
+                            data_frame(method="Final: Regularized movie and user effect model on Validation data set",  
+                                       RMSE = final_va_result))
+
+# Check results and confirm project target is met!
+rmse_results
+```
+
+**To recap, the final result on Validation data set: RMSE = 0.825615 which is less than the target of 0.86490.**
+
+## 3.2 Interpretation
+
+The findings of the results are quite straightforward to interpret: I started with an average movie rating model as the basis and added one bias after another - firstly, the movie bias and next the user bias - which presented improvement. To further fine-tune the model, we added a penalty term lambda to tackle the issue on small sample size such as certain movies were rated only by 1 or a few user, this further regulated the biases or the effects and hence produced a model that met our target goal.
+
+In short, the more the regulated biases are introduced, the lower the RMSE result we get.
+
+\newpage
+# Section 4: Conclusion
+
+The project is considered successful as it was completed with the target goal achieved and all the rules followed.
+
+The approach used throughout is systematic and effective, albeit conservative; it is conservative in the sense that I have been using the same concept and technique by adding and regulating the biases or effects one step at a time and eventually achieve the goal. There is obviously still room for improvement and opportunities to explore in the future. For example, the existing model can be enhanced further by adding other biases or effects such as genre bias and time bias. To address genre bias, I would plan to normalize the genre values from multiple genre values in one column into one genre value per row or observation. To address time bias, I would plan to convert the timestamp value into a date format that is easy to analyse such as "YYYY-MM-DD". To go beyond biases and effects, in the future, we should also study further around the fact that groups of movies have similar rating patterns and groups of users have similar rating patterns as well, through Matrix factorization.
+
+Final retrospective: as someone who is totally new to statistics, data science and R programming, I am generally pleased that I have completed this assignment without major issues. I can't thank Professor Rafael A. Irizarry, his team and everyone supporting edX platform for the great materials. The only mistake I could have made was probably signing up this Capstone module a bit too close to the deadline, otherwise I would have more time to develop and fine-tune the model by enhancing with what I suggested earlier.
+
+**THE END**
