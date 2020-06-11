@@ -1,0 +1,614 @@
+---
+title: "HarvardX PH125.9X Data Science 'CYO' Capstone Project on Wine Quality"
+author: "David Wong"
+date: "June, 2020"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+---
+\newpage
+# Section 1: Introduction
+
+## 1.1 Background
+
+This is the second of the two Capstone projects that learners need to complete in the final module (PH125.9X) of the HarvardX Data Science Professional Certification series.
+
+Learners are allowed to pick a subject and data of their choice and develop a machine learning product using the techniques learned throughout the series and following the guidelines provided by the course provider.
+
+The data chosen for this project is the "Wine Quality Data Set" provided by the UCI Machine Learning Repository in the following link: 
+
+https://archive.ics.uci.edu/ml/datasets/Wine+Quality.
+
+## 1.2 About the data set
+
+There are two data files from the source, one for the red wines and the other for the white wines.
+
+Both data files have the same format and same variables.
+
+There are 11 input variables based on physicochemical tests that determine the properties of the wine:
+1 - fixed acidity
+2 - volatile acidity
+3 - citric acid
+4 - residual sugar
+5 - chlorides
+6 - free sulfur dioxide
+7 - total sulfur dioxide
+8 - density
+9 - pH
+10 - sulphates
+11 - alcohol
+
+There is 1 output variable based on sensory data:
+12 - quality (score between 0 (the worst) and 10 (the best))
+
+## 1.3 Objectives
+
+The key objectives of the project are:
+
+* explore different machine learning algorthms and techniques particularly those related to classification or regression tasks;
+* choose the ones that are relevant and suitable to the data and scenario at hand;
+* build and test the models chosen;
+* evaluate the performances of the models based on how accurate the predictions on the wine quality are; and
+* identify the "best" model that achieves the highest "overall accuracy".
+
+## 1.4 Key steps
+
+The key steps throughout are:
+
+* Data Preparation - where data files will be downloaded from the source.
+
+* Data Exploration - where a combination of simple scripts, plots and visualisation will be used to explore the data behaviour and provide facts and statistics to support the rationale used behind model building.
+
+* Model Building - where the original data set will be split into training set and test set for model building and testing respectively; training data set will be used together with the functions provided by the "Caret" package for training and cross-validations. Three models will be used: k-nearest neighbours (KNN), random forest (RF) and support vector machine (SVM).
+
+* Model Testing - where models trained/built will be tested using the test data set; the performances of the models will be evaluated based on the "overall accuracy" of the predictions on wine quality.
+
+Note: The same steps will be applied twice on both the red wine data set and the white wine data set respectively.
+
+## 1.5 R script
+
+The code snipplets presented in this report are extracted partially from the R script submitted separately as part of the project submission.
+
+Consolidation of these code snipplets does not make it whole, therefore, please always refer to the R script for a successful full run.
+
+A word of caution: the whole script usually takes around 90 minutes to complete running, but it may take longer (up to 2 hours 30 minutes) depending on the resource availability during execution and the overall hardware configuration of the machine. The following is the specification of the machine used for reference:
+
+* CPU: 1.6 GHz Dual-Core Intel Corei5
+* Memory: 16GB 2133 MHz LPDDR3
+
+```{r include=FALSE}
+# Install packages automatically if required
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(corrplot)) install.packages("corrplot", repos = "http://cran.us.r-project.org")
+if(!require(kknn)) install.packages("kknn", repos = "http://cran.us.r-project.org")
+if(!require(randomForest)) install.packages("randomForest", repos = "http://cran.us.r-project.org")
+if(!require(kernlab)) install.packages("kernlab", repos = "http://cran.us.r-project.org")
+if(!require(e1071)) install.packages("e1071", repos = "http://cran.us.r-project.org") #for kknn too
+if(!require(dplyr)) install.packages("dplyr", repos = "http://cran.us.r-project.org")
+if(!require(gridExtra)) install.packages("gridExtra", repos = "http://cran.us.r-project.org")
+
+# Load libraries required
+library(tidyverse)
+library(dplyr)
+library(caret)
+library(corrplot)
+library(kknn)
+library(randomForest)
+library(kernlab)
+library(gridExtra)
+
+```
+
+\newpage
+# Section 2: Methods / Analysis
+
+## 2.1 Data Preparation
+
+The first step is to download both the csv files for red wine data and white wine data from the UCI website and store them in the respective dataframes. 
+
+```{r}
+# Download Red Wine data file from UCI and load into data frame
+redwine_url <- "https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv"
+redwine_raw <- read.csv(redwine_url, header = TRUE, sep = ";")
+redwine <- redwine_raw
+
+# Download White Wine data file from UCI and load into data frame
+whitewine_url <- "https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv"
+whitewine_raw <- read.csv(whitewine_url, header = TRUE, sep = ";")
+whitewine <- whitewine_raw
+```
+
+## 2.2 Data Exploration
+
+### 2.2.1 General data inspection
+
+According to UCI on their website, there are 11 input variables with numeric data type and 1 output variable in integer in both the red wine file and the white wine file; there should be 1599 rows for the red wine file and 4898 rows for the white wine file.
+
+The following codes confirm that the data frames are loaded completely as the summary data matches with the information provided by UCI.
+
+```{r}
+# Confirm summary data matches with information from UCI website
+str(redwine)
+str(whitewine)
+```
+
+The data looks generally tidy after visual inspection with the codes below.
+
+```{r}
+# Visually insepct the data
+head(redwine)
+head(whitewine)
+```
+
+It's confirmed that there is no "NA" in the data with the codes below and hence the data does not require further cleansing or transformation.
+
+```{r}
+# Check for "NA"s
+sum(is.na(redwine))
+sum(is.na(whitewine))
+```
+
+\newpage
+### 2.2.2 Class Imbalance
+
+The histograms and the tables below show that there is a large class imbalance, there seems to be a lot more "average" wines (with quality graded with 5 and 6) than the "bad" wines (with quality value below 5) or the "good wines" (with quality value above 7). 
+
+```{r}
+# Analyse distribution of quality values using histogram
+par(mfrow=c(1,2))
+hist(redwine$quality, main="Red Wine", xlab = "Quality", col = "red")
+hist(whitewine$quality, main="White Wine", xlab = "Quality", col = "white")
+par(mfrow=c(1,1))
+```
+
+The tables below give you the specific counts that further confirm the class imbalance. It is particularly obvious for the case of white wines where there are only 5 out of 4898 having a quality rating of 9.
+
+```{r}
+# Analyse distribution of quality values using table to show the actual figures
+table(redwine$quality)
+table(whitewine$quality)
+```
+
+\newpage
+### 2.2.3 Visualise quality vs each input variable
+
+The following two sets of plots plot quality against each of the 11 input variables in the respective red and white wine data sets. The line on each plot shows the linear regression of quality as a function of the respective input variable.
+
+Let's start with the Red Wine plots.
+
+Judging the slope of the lines, volatile.acidity, sulphates, and alcohol have the strongest relationship with quality; whereas the lines for Free.sulfur.dioxide and residual.sugar are almost flat which imply that they have the weakest relationships with quality.
+
+Through visual inspection, some of the input variables appear to have a few outliers.
+
+```{r}
+# Plot Quality against each of the 11 input variables
+# On Red Wine
+redwineplots <- list()  # Create a list to store plots
+for (i in 1:11) {
+  p1 <- eval(substitute(
+    ggplot(data=redwine,aes(x=redwine[ ,i], y=redwine[,"quality"])) +
+      geom_point(alpha = 0.8, size =1) +
+      geom_smooth(method = "lm", se = FALSE, size = 1) +
+      labs(y="Red Wine Quality", x=names(redwine)[i])
+    ,list(i = i)))
+  redwineplots[[i]] <- p1  # add each plot into plot list
+}
+# Present plots
+do.call(grid.arrange, c(redwineplots, ncol = 4))
+```
+\newpage
+Moving on with the White Wine plots below.
+
+Alcohol and density seem to have the strongest relationships with quality; whereas citric.acid, free.sulfur.dioxide, and sulphates appear to have the weakest relationships with quality.
+
+There is a presence of outliers in most of the input variables, particularly obvious with residual.sugar and free.sulphur.dioxide.
+
+```{r}
+# On White Wine
+whitewineplots <- list()  # Create a list to store plots
+for (i in 1:11) {
+  p1 <- eval(substitute(
+    ggplot(data=whitewine,aes(x=whitewine[ ,i], y=whitewine[,"quality"])) +
+      geom_point(alpha = 0.8, size =1) +
+      geom_smooth(method = "lm", se = FALSE, size = 1) +
+      labs(y="White Wine Quality", x=names(whitewine)[i])
+    ,list(i = i)))
+  whitewineplots[[i]] <- p1  # add each plot into plot list
+}
+# Present plots
+do.call(grid.arrange, c(whitewineplots, ncol = 4))
+
+```
+
+\newpage
+### 2.2.4 Correlation Matrix
+
+The following two plots show the correlation matrices of red wine and white wine data sets.
+
+We are particularly interested in the relationships with quality.
+
+As far as red wine data is concerned, only alcohol shows obvious relationship with quality even though the value is not particularly high, only at 0.48.
+
+Other correlations that show strong values can be easily understood, for example, pH value is negatively correlated with fixed.acidity as the more acidic the wine is, the lower the pH value. Correlations as such are not of a concern.
+
+```{r}
+# Plot correlation matrix using number method to display correlation coefficient
+cor_redwine <- cor(redwine)
+corrplot(cor_redwine, number.cex=0.7, method = 'number', title="Red Wine Correlation Matrix", mar=c(0,0,1,0))
+```
+
+White wine data shows something slightly different. Density has a 0.84 correlation with residual.sugar and a -0.8 vs alcohol whereas alcohol has the stronger positive correlation value of 0.44 with quality. This could be a concern if we were planning to use linear models.
+
+```{r}
+cor_whitewine <- cor(whitewine)
+corrplot(cor_whitewine, number.cex=0.7, method = 'number', title = "White Wine Correlation Matrix", mar=c(0,0,1,0))
+```
+
+Based on the findings from the above, non-linear classification models will be more appropriate than regression.
+
+As we intend to build the same models for both red and white wine data, and there is not much commonality between both data sets in terms of the input variables that have weak correlations with quality, we therefore do not perform any feature selection by removing any of those.
+
+For the sake of completeness and potential future comparison against the UCI study, we do not remove the outliers, either. Instead, we will use models that are more robust against the outliers such as Random Forest; and for the case of KNN, we will use standardisation to have the features transformed such that they all have a common range. Furthermore, as the dataset has a large number of samples, the remaining outliers will not affect the mean and SD to a significant extent such that they need to be removed.
+
+In short, we are going to use k-nearest neighbours (KNN), random forest (RF) and support vector machine (SVM) for model building.
+
+\newpage
+## 2.3 Model Building
+
+Caret package and its related functions will be used for the sake of simplicity and convenience. For example, by using the tuneGrid argument, we can pass a grid of the hyperparameters we want to use into the train function; the expand.grid function simplies the creation by combining the hyperparameter values into every possible combination.
+
+To achieve better accuracy, we are sticking with the rule of thumb of splitting our data samples into 80% training data as majority and 20% test data; in addition to that, we are going to use repeated cross-validation 5 times using 5 folds. For KNN, we will use the preProcess argument to centre and scale the input variations as part of the standardisation task.
+
+### 2.3.1 Model Building on Red Wine data set
+
+The following codes split the red wine data into training and test set in the ratio of 80:20.
+
+```{r message=FALSE, warning=FALSE}
+# Prepare training and test data sets
+redwine$quality <- as.factor(redwine$quality)
+set.seed(2006, sample.kind="Rounding") #Use Year - Month - day of today's date, 2020-06-08, the first day this script is drafted
+train_index_redwine <- createDataPartition(redwine$quality, p = 0.8, list = F)
+train_set_redwine <- redwine[train_index_redwine,]
+test_set_redwine <- redwine[-train_index_redwine,]
+```
+
+#### 2.3.1.1 k-nearest neighbours on Red Wine data
+
+5 kmax, 2 distances (1 for Manahattan and 2 for Euclidian) and 3 kernel values will be used.
+
+```{r}
+# Model 1 - k-nearest neighbours on Red Wine
+# 5 kmax, 2 distances, 3 kernels
+
+# Create a log to record execution time
+run_log <- tibble(Activity = "KNN Red Start:", Time = Sys.time())
+
+control <- trainControl(method = "repeatedcv", number = 5, repeats = 5)
+grid_kknn <- expand.grid(kmax = c(3, 5, 7, 9, 11), distance = c(1, 2),
+                         kernel = c("rectangular", "cos", "gaussian"))
+train_kknn_redwine <- train(quality ~ ., data = train_set_redwine, method = "kknn",
+                    trControl = control, tuneGrid = grid_kknn,
+                    preProcess = c("center", "scale"))
+plot(train_kknn_redwine)
+train_kknn_redwine$bestTune
+
+# Record execution end-time
+run_log <- bind_rows(run_log,tibble(Activity = "KNN Red End:", Time = Sys.time()))
+```
+
+As per result above, the gaussian kernel using Euclidian distance and k value of 11 works best for Red Wine data.
+
+\newpage
+#### 2.3.1.2 Random Forest on Red Wine data
+
+Mtry is the number of variables randomly sampled as candidates at each split and it is the only hyperparameter available for tuning. The values from 1 to 11 are used in the tuneGrid argument.
+
+```{r}
+# Model 2 - Random Forest on Red Wine
+# mtry from 1 through 11
+
+# Record execution start-time
+run_log <- bind_rows(run_log,tibble(Activity = "RF Red Start:", Time = Sys.time()))
+
+control <- trainControl(method = "repeatedcv", number = 5, repeats = 5)
+grid_rf <- expand.grid(mtry = 1:11)
+train_rf_redwine <- train(quality ~ ., data = train_set_redwine, method = "rf",
+                  trControl = control, tuneGrid = grid_rf, 
+                  preProcess = c("center", "scale"))
+plot(train_rf_redwine)
+train_rf_redwine$bestTune
+
+# Record execution end-time
+run_log <- bind_rows(run_log,tibble(Activity = "RF Red End:", Time = Sys.time()))
+
+```
+
+As per result above, mtry = 1 is the best value for Red Wine data.
+
+\newpage
+#### 2.3.1.3 Support Vector Machine (SVM) on Red Wine data
+
+The Radial Basis Function (svmRadial) will be used as the kernel.
+
+After a few trial-and-errors, 10 sigma values between 0.1 and 1; 4 values between 2 and 16 will be used for cost.
+
+```{r}
+# Model 3 - Support Vector Machine on Red Wine
+# The Radial Basis Function (svmRadial) used
+# 10 sigma values between 0.1 and 1
+# Cost: 4 values between 2 and 16
+
+# Record execution start-time
+run_log <- bind_rows(run_log,tibble(Activity = "SVM Red Start:", Time = Sys.time()))
+
+grid_svm <- expand.grid(C = 2^(1:4), sigma = seq(0.1, 1, length = 10))
+train_svm_redwine <- train(quality ~ ., data = train_set_redwine, method = "svmRadial",
+                   trControl = control, tuneGrid = grid_svm,
+                   preProcess = c("center", "scale"))
+plot(train_svm_redwine)
+train_svm_redwine$bestTune
+
+# Record execution end-time
+run_log <- bind_rows(run_log,tibble(Activity = "SVM Red End:", Time = Sys.time()))
+
+```
+
+As per result above, a cost of 2 and a sigma of 0.4 works most accurately for Red Wine data.
+
+\newpage
+### 2.3.2 Model Building on White Wine data set
+
+The following codes split the white wine data into training and test set in the ratio of 80:20.
+
+```{r message=FALSE, warning=FALSE}
+# Prepare training and test data sets
+whitewine$quality <- as.factor(whitewine$quality)
+set.seed(2006, sample.kind="Rounding") #Use Year - Month - day of today's date, 2020-06-08, the first day this script is drafted
+train_index_whitewine <- createDataPartition(whitewine$quality, p = 0.8, list = F)
+train_set_whitewine <- whitewine[train_index_whitewine,]
+test_set_whitewine <- whitewine[-train_index_whitewine,]
+```
+
+#### 2.3.2.1 k-nearest neighbours on White Wine data
+
+5 kmax, 2 distances (1 for Manahattan and 2 for Euclidian) and 3 kernel values will be used.
+
+```{r}
+# Model 1 - k-nearest neighbours on White Wine
+# 5 kmax, 2 distances, 3 kernels
+
+# Record execution start-time
+run_log <- bind_rows(run_log,tibble(Activity = "KNN White Start:", Time = Sys.time()))
+
+control <- trainControl(method = "repeatedcv", number = 5, repeats = 5)
+grid_kknn <- expand.grid(kmax = c(3, 5, 7, 9, 11), distance = c(1, 2),
+                         kernel = c("rectangular", "cos", "gaussian"))
+train_kknn_whitewine <- train(quality ~ ., data = train_set_whitewine, method = "kknn",
+                            trControl = control, tuneGrid = grid_kknn,
+                            preProcess = c("center", "scale"))
+plot(train_kknn_whitewine)
+train_kknn_whitewine$bestTune
+
+# Record execution end-time
+run_log <- bind_rows(run_log,tibble(Activity = "KNN White End:", Time = Sys.time()))
+
+```
+
+As per result above, the rectangular kernel using Euclidian distance and k value of 11 works best for White Wine data.
+
+\newpage
+#### 2.3.2.2 Random Forest on White Wine data
+
+Mtry is the number of variables randomly sampled as candidates at each split and it is the only hyperparameter available for tuning. The values from 1 to 11 are used in the tuneGrid argument.
+
+```{r}
+# Model 2 - Random Forest on White Wine
+# mtry from 1 through 11
+
+# Record execution start-time
+run_log <- bind_rows(run_log,tibble(Activity = "RF White Start:", Time = Sys.time()))
+
+control <- trainControl(method = "repeatedcv", number = 5, repeats = 5)
+grid_rf <- expand.grid(mtry = 1:11)
+train_rf_whitewine <- train(quality ~ ., data = train_set_whitewine, method = "rf",
+                          trControl = control, tuneGrid = grid_rf, 
+                          preProcess = c("center", "scale"))
+plot(train_rf_whitewine)
+train_rf_whitewine$bestTune
+
+# Record execution end-time 
+run_log <- bind_rows(run_log,tibble(Activity = "RF White End:", Time = Sys.time()))
+
+```
+
+As per result above, mtry = 1 is the best value for White Wine data.
+
+\newpage
+#### 2.3.2.3 Support Vector Machine (SVM) on White Wine data
+
+The Radial Basis Function (svmRadial) will be used as the kernel.
+
+After a few trial-and-errors, 8 sigma values between 0.25 and 2; 3 values between 2 and 8 will be used for cost.
+
+```{r}
+# Model 3 - Support Vector Machine on White Wine
+# The Radial Basis Function (svmRadial) used
+# 8 sigma values between 0.25 and 2
+# Cost: 3 values between 2 and 8
+
+# Record execution start-time
+run_log <- bind_rows(run_log,tibble(Activity = "SVM White Start:", Time = Sys.time()))
+
+grid_svm <- expand.grid(C = 2^(1:3), sigma = seq(0.25, 2, length = 8))
+train_svm_whitewine <- train(quality ~ ., data = train_set_whitewine, method = "svmRadial",
+                   trControl = control, tuneGrid = grid_svm,
+                   preProcess = c("center", "scale"))
+plot(train_svm_whitewine)
+train_svm_whitewine$bestTune
+
+# Record execution end-time
+run_log <- bind_rows(run_log,tibble(Activity = "SVM White End:", Time = Sys.time()))
+
+```
+
+As per result above, a cost of 8 and a sigma of 1.25 works most accurately for White Wine data.
+
+\newpage
+# Section 3: Model Testing and Results
+
+In this section, for each of the trained models, we will use predict() function to run on the respective test data sets. confusionMatrix() will be used to present the results and the overall accuracy values will be consolidated into a summary tibble for final presentation of results.
+
+## 3.1 KNN on Red Wine Data
+
+```{r}
+# Model 1 - k-nearest neighbours (Red)
+predict_kknn_redwine <- predict(train_kknn_redwine, test_set_redwine)
+cm_kknn_redwine <- confusionMatrix(predict_kknn_redwine, test_set_redwine$quality)
+accuracy_kknn_redwine <- cm_kknn_redwine$overall['Accuracy']
+
+# Show result
+cm_kknn_redwine
+accuracy_kknn_redwine
+```
+
+Overall accuracy for KNN on Red Wine data is `r accuracy_kknn_redwine`.
+
+\newpage
+## 3.2 KNN on White Wine Data
+
+```{r}
+# Model 1 - k-nearest neighbours (White)
+predict_kknn_whitewine <- predict(train_kknn_whitewine, test_set_whitewine)
+cm_kknn_whitewine <- confusionMatrix(predict_kknn_whitewine, test_set_whitewine$quality)
+accuracy_kknn_whitewine <- cm_kknn_whitewine$overall['Accuracy']
+
+# Show result
+cm_kknn_whitewine
+accuracy_kknn_whitewine
+```
+
+Overall accuracy for KNN on White Wine data is `r accuracy_kknn_whitewine`.
+
+\newpage
+## 3.3 Random Forest on Red Wine Data
+
+```{r}
+# Model 2 - Random Forest (Red)
+predict_rf_redwine <- predict(train_rf_redwine, test_set_redwine)
+cm_rf_redwine <- confusionMatrix(predict_rf_redwine, test_set_redwine$quality)
+accuracy_rf_redwine <- cm_rf_redwine$overall['Accuracy']
+
+# Show result
+cm_rf_redwine
+accuracy_rf_redwine
+
+```
+
+Overall accuracy for RF on Red Wine data is `r accuracy_rf_redwine`.
+
+\newpage
+## 3.4 Random Forest on White Wine Data
+
+```{r}
+# Model 2 - Random Forest (White)
+predict_rf_whitewine <- predict(train_rf_whitewine, test_set_whitewine)
+cm_rf_whitewine <- confusionMatrix(predict_rf_whitewine, test_set_whitewine$quality)
+accuracy_rf_whitewine <- cm_rf_whitewine$overall['Accuracy']
+
+# Show result
+cm_rf_whitewine
+accuracy_rf_whitewine
+```
+
+Overall accuracy for RF on White Wine data is `r accuracy_rf_whitewine`.
+
+\newpage
+## 3.5 SVM on Red Wine Data
+
+```{r}
+# Model 3 - SVM (Red)
+predict_svm_redwine <- predict(train_svm_redwine, test_set_redwine)
+cm_svm_redwine <- confusionMatrix(predict_svm_redwine, test_set_redwine$quality)
+
+accuracy_svm_redwine <- cm_svm_redwine$overall['Accuracy']
+
+# Show result
+cm_svm_redwine
+accuracy_svm_redwine
+```
+
+Overall accuracy for SVM on Red Wine data is `r accuracy_svm_redwine`.
+
+\newpage
+## 3.6 SVM on White Wine Data
+
+```{r}
+# Model 3 - SVM (White)
+predict_svm_whitewine <- predict(train_svm_whitewine, test_set_whitewine)
+cm_svm_whitewine <- confusionMatrix(predict_svm_whitewine, test_set_whitewine$quality)
+
+accuracy_svm_whitewine <- cm_svm_whitewine$overall['Accuracy']
+
+# Show result
+cm_svm_whitewine
+accuracy_svm_whitewine
+```
+
+Overall accuracy for SVM on White Wine data is `r accuracy_svm_whitewine`.
+
+\newpage
+## 3.7 Final Results: a consolidated view
+
+The following table consolidates and summarises all the overall accuarcy results of the respective tested models.
+
+Random Forest models produce the best overall accuracy values on both the red and white wine data sets.
+
+The accuracy value on White Wine data is higher than the same on Red Wine data, that is likely because the sample data size of the White Wine data set is much larger than the same of the Red Wine data set and therefore more training data was available and hence better accuracy.
+
+```{r echo=FALSE}
+#########################
+#                       #
+# Final results/Summary #
+#                       #
+#########################
+
+# Consolidate results on red wine and white wine in respective lists
+result_redwine <- c(accuracy_kknn_redwine, accuracy_rf_redwine, accuracy_svm_redwine)
+result_whitewine <- c(accuracy_kknn_whitewine, accuracy_rf_whitewine, accuracy_svm_whitewine)
+
+# Create a summary tibble
+result_summary <- tibble(
+  Model = c("KNN", "RF","SVM"),
+  "Accuracy on Red Wine" = result_redwine,
+  "Accuracy on White Wine" = result_whitewine
+)
+
+# Present final results
+result_summary %>% knitr::kable()
+```
+
+\newpage
+# Section 4: Conclusion
+
+While it has been the right decision to choose non-linear classification models for training and testing as they are more appropriate than regression, there are a few areas worth fine-tuning:
+
+* Feature selection: some input variables such as free.sulfur.dioxide for both red and white wine data and residual.sugar for the case of red wine data are less important and could have been removed in order to reduce the footprint of the dimensionality and hence improve the training time and efficiency.
+
+* Removal of outliers: although reasons were given not to remove the outliers in Section 2, it was more of an assumption that such outliers would not affect the overall model building and testing, some due diligence could have been done.
+
+Whether the selected models can be used for practical use is still undetermined for a few reasons:
+
+* overall accuracy which hovers around high of 0.6 and low of 0.7 is still considered not high enough to give confidence from the commercial point of view;
+
+* accuracy values on good and bad quality wines are low, therefore there is no practical usage of the model if it is only good at predicting average or mediocre wines.
+
+Some future considerations could be:
+
+* from wine producer's perspective - include non-physiochemical attributes such as origin of grapes, cost of production into the overall data set, so that machine learning models can be built to support more commercial use-cases such as deciding what grapes produce the best-performance wines, i.e. best quality with lowest cost; or which origin should the wine producers focus on increasing grape production based on the past data, etc.
+
+* from consumers' perspective - include information on brand and year of production, so that machine learning models can be used to build a recommendation system that predicts consumers' preference and recommends wines that have similar properties.
+
+*** THE END ***
